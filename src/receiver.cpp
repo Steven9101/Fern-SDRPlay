@@ -307,6 +307,10 @@ void Receiver::reasons_between(const Effective& a, const Effective& b, rsp::Reas
         reason |= rsp::update::tuner_gr;
     if ((a.gain == GainMode::agc) != (b.gain == GainMode::agc))
         reason |= rsp::update::ctrl_agc;
+    // Taking the gain back from the API's AGC writes it again even where the
+    // stored values did not change: the AGC changed the RSP's.
+    if (a.gain == GainMode::agc && b.gain != GainMode::agc)
+        reason |= rsp::update::tuner_gr;
     if (a.ppm != b.ppm)
         reason |= rsp::update::dev_ppm;
     if (a.dc_correction != b.dc_correction || a.iq_correction != b.iq_correction)
@@ -503,6 +507,7 @@ std::optional<Failure> Receiver::open(const OpenRequest& request, Stream& stream
     effective_ = planned;
     write_fields(effective_);
 
+    stream_ = &stream;
     callbacks_.StreamACbFn = &Stream::on_stream;
     callbacks_.StreamBCbFn = &Stream::on_stream;
     callbacks_.EventCbFn = &Stream::on_event;
@@ -543,9 +548,17 @@ std::optional<Failure> Receiver::apply(const LiveChange& change) {
                        " sets the gain by hand, but module.gain is auto; send module.gain = manual with it");
     if (next.gain == GainMode::agc && change.if_gain_reduction)
         return invalid("module.if_gain_reduction is the API AGC's to set while module.gain = agc");
+    // While the API's AGC ran it moved the IF gain reduction, so the value
+    // stored here is stale: the one the AGC last reported is where the gain
+    // really is, and what the new mode starts from.
+    if (effective_.gain == GainMode::agc && next.gain != GainMode::agc && stream_) {
+        const int reported = stream_->reported_if_reduction();
+        if (reported >= min_if_reduction && reported <= max_if_reduction)
+            next.if_reduction = reported;
+    }
     std::optional<size_t> step;
     if (change.gain && *change.gain == GainMode::automatic && effective_.gain != GainMode::automatic) {
-        step = ladder_nearest(ladder_, static_cast<int>(lna_table_[effective_.lna_state]) + effective_.if_reduction);
+        step = ladder_nearest(ladder_, static_cast<int>(lna_table_[next.lna_state]) + next.if_reduction);
         next.lna_state = ladder_[*step].lna_state;
         next.if_reduction = ladder_[*step].if_reduction;
     }

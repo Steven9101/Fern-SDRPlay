@@ -136,13 +136,17 @@ goes up a step when little but the odd crash has clipped for 5 seconds (a
 minute, after the first two minutes) and the peaks would stay 6 dB under
 full scale one step higher. A sample counts as clipped when I or Q reaches
 32512 of 32767, and every sample counts as clipped while the API reports an
-overload of the converter.
+overload of the converter. When the API refuses a gain change, the control
+tries again from the step the RSP is at; after five refusals in a row it
+stops, leaves the gain where it is and says so in FernSDR's log, until
+`module.gain` is set again.
 
 `gain = manual` keeps `lna_state` and `if_gain_reduction`; left out, they
 start where `auto` would. `gain = agc` hands the IF gain to the API's own
 AGC (set point -30 dBFS) and keeps the LNA state; it reacts within
 milliseconds and pumps with strong signals, which is why the module keeps it
-off unless asked. FernSDR's S-meter calibration holds at the gain it was
+off unless asked. Leaving `agc` for `auto` or `manual` starts from the IF gain
+reduction the AGC last reported and writes the gain to the RSP again. FernSDR's S-meter calibration holds at the gain it was
 made at, so a calibrated band wants `manual`.
 
 ### What the module reports

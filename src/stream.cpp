@@ -150,34 +150,76 @@ void Stream::on_stream(short* xi, short* xq, rsp::StreamCbParamsT* params, unsig
     static_cast<Stream*>(ctx)->handle_samples(xi, xq, params, count, reset != 0);
 }
 
+void Stream::account_step(uint32_t step, unsigned count) {
+    const uint32_t expected = static_cast<uint32_t>(static_cast<uint64_t>(count) * stride_);
+    if (step == expected)
+        return;
+    const uint32_t gap = step - expected;
+    if (gap < 0x80000000u)
+        skipped_.fetch_add(gap / stride_, std::memory_order_relaxed);
+    else
+        discontinuities_.fetch_add(1, std::memory_order_relaxed);
+}
+
 void Stream::track_numbers(uint32_t first, unsigned count, bool reset) {
     // The API numbers its samples, 32 bits and wrapping (StreamCbParamsT.
-    // firstSampleNum). The specification does not say whether it counts
-    // before or after decimation, so the step is learnt from the first two
-    // callbacks: count or count times the decimation. A step beyond that is
-    // samples the API lost; a reset restarts the numbering on purpose.
+    // firstSampleNum), but the specification does not say in what: delivered
+    // samples, converter samples before decimation, or, in low IF, samples
+    // at 6 MHz, three for each one delivered at 2 MHz. So the step per
+    // delivered sample is learnt: 1, 3, the decimation or three times it,
+    // once two pairs of callbacks in a row agree on it, and learnt again
+    // after a reset, which restarts the numbering on purpose. A step beyond
+    // the expected one is samples the API lost; the pairs seen while
+    // learning are counted once the step is known, a gap in the very first
+    // among them too.
     if (reset || !have_previous_) {
         if (reset && have_previous_)
             resets_.fetch_add(1, std::memory_order_relaxed);
+        if (reset) {
+            stride_ = 0;
+            candidate_ = 0;
+            agreed_ = 0;
+            pending_ = 0;
+        }
         have_previous_ = true;
         previous_first_ = first;
         previous_count_ = count;
         return;
     }
     const uint32_t step = first - previous_first_;
-    if (stride_ == 0) {
-        stride_ = decimation_ > 1 && step == static_cast<uint32_t>(previous_count_) * decimation_ ? decimation_ : 1;
-    }
-    const uint32_t expected = static_cast<uint32_t>(previous_count_) * stride_;
-    if (step != expected) {
-        const uint32_t gap = step - expected;
-        if (gap < 0x80000000u)
-            skipped_.fetch_add(gap / stride_, std::memory_order_relaxed);
-        else
-            discontinuities_.fetch_add(1, std::memory_order_relaxed);
-    }
+    const unsigned before = previous_count_;
     previous_first_ = first;
     previous_count_ = count;
+    if (stride_ != 0) {
+        account_step(step, before);
+        return;
+    }
+    unsigned k = 0;
+    if (before > 0 && step % before == 0) {
+        const uint32_t ratio = step / before;
+        if (ratio == 1 || ratio == 3 || ratio == decimation_ || ratio == 3 * decimation_)
+            k = ratio;
+    }
+    if (k != 0 && k == candidate_) {
+        ++agreed_;
+    } else if (k != 0) {
+        candidate_ = k;
+        agreed_ = 1;
+    }
+    if (pending_ == max_pending) {
+        std::memmove(pending_step_, pending_step_ + 1, sizeof pending_step_ - sizeof pending_step_[0]);
+        std::memmove(pending_count_, pending_count_ + 1, sizeof pending_count_ - sizeof pending_count_[0]);
+        --pending_;
+    }
+    pending_step_[pending_] = step;
+    pending_count_[pending_] = before;
+    ++pending_;
+    if (agreed_ < 2)
+        return;
+    stride_ = candidate_;
+    for (size_t i = 0; i < pending_; ++i)
+        account_step(pending_step_[i], pending_count_[i]);
+    pending_ = 0;
 }
 
 void Stream::handle_samples(const short* xi, const short* xq, const rsp::StreamCbParamsT* params, unsigned count,

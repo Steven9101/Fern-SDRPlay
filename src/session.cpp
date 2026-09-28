@@ -91,6 +91,9 @@ private:
     uint64_t logged_drops_ = 0;
     uint64_t logged_overloads_ = 0;
     uint64_t logged_discontinuities_ = 0;
+    // Gain changes of gain = auto the API refused in a row.
+    static constexpr int max_gain_failures = 5;
+    int gain_failures_ = 0;
     // The rate check: when the first samples came, and the start of the
     // measured window.
     std::optional<Clock::time_point> first_data_;
@@ -346,6 +349,8 @@ void Session::handle_set(const json::Value& message) {
             return;
         }
     const GainMode before = receiver_.effective().gain;
+    if (change.gain)
+        gain_failures_ = 0;
     const auto failure = receiver_.apply(change);
     if (receiver_.effective().gain != before || (change.gain && *change.gain == GainMode::automatic))
         start_gain_control();
@@ -465,9 +470,35 @@ void Session::on_tick() {
                     fail(*f);
                     return;
                 }
-                log_line("the gain control stops: %s", f->message.c_str());
-                gain_control_.reset();
+                // A refused change may be passing (the API was busy with
+                // another update): the control starts again from the step the
+                // RSP is really at and tries once more when the samples ask
+                // for it. Only a run of refusals ends it, and FernSDR logs
+                // the error, so the operator learns that the gain is fixed.
+                ++gain_failures_;
+                if (gain_failures_ < max_gain_failures) {
+                    log_line("the SDRplay API refused a gain change (%d of %d in a row): %s", gain_failures_,
+                             max_gain_failures, f->message.c_str());
+                    start_gain_control();
+                } else {
+                    const GainStep& at = receiver_.ladder()[receiver_.ladder_step()];
+                    char text[160];
+                    std::snprintf(text, sizeof text,
+                                  "gain = auto has stopped after %d refused gain changes in a row; the gain "
+                                  "reduction stays at %d dB until module.gain is set again. Last refusal: ",
+                                  gain_failures_, at.reduction);
+                    json::Value e = json::Value::object();
+                    e.set("type", "error");
+                    e.set("code", error_code_name(f->code));
+                    e.set("message", text + f->message);
+                    e.set("fatal", false);
+                    log_line("%s%s", text, f->message.c_str());
+                    send(e);
+                    gain_failures_ = 0;
+                    gain_control_.reset();
+                }
             } else {
+                gain_failures_ = 0;
                 const GainStep& s = receiver_.ladder()[step];
                 log_line("gain reduction %d dB (LNA state %u, IF %d dB): %s", s.reduction, s.lna_state,
                          s.if_reduction, gain_control_->reason().c_str());

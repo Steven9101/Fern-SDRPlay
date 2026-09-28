@@ -107,8 +107,9 @@ process that waits inside a call left the API usable in every trial.
 So the module holds the lock only from `GetDevices` to `SelectDevice`, and
 releases it on every path before it closes the API. Every call runs under a
 watchdog: the whole open gets 12 seconds (FernSDR wants `ready` within 15),
-`--list-devices` 8 (FernSDR allows 10), a live change 3, and stopping 1.5
-(FernSDR sends SIGTERM after 2). A call that outlives its deadline cannot be
+`--list-devices` 8 (FernSDR allows 10), a live change 3, and stopping 3.5
+(FernSDR sends SIGKILL 4 seconds after stop; its SIGTERM at 2 only reaches
+the module's signalfd). A call that outlives its deadline cannot be
 taken back, so the module reports `busy` and exits, which frees the lock.
 
 ## Sample rate
@@ -198,9 +199,13 @@ before `ready`.
 `StreamCbParamsT.firstSampleNum` numbers the samples (32 bits); the
 specification does not define it. The module expects each callback to start
 where the last ended and counts a jump forward as samples the API lost, as
-ka9q-radio does. Whether the number counts before or after decimation is not
-documented, so the module learns the step from the first two callbacks. A
-callback with `reset` set restarts the numbering on purpose.
+ka9q-radio does. Whether the number counts delivered samples, samples before
+decimation, or in low IF samples at the 6 MHz converter rate is not
+documented, so the module learns the step per delivered sample: 1, 3, the
+decimation or three times it, once two pairs of callbacks in a row agree.
+Pairs seen while learning are counted once the step is known, so a gap
+between the first callbacks is not lost. A callback with `reset` set
+restarts the numbering on purpose, and the step is learnt again.
 
 The event callback (spec 3.22) records and returns: `PowerOverloadChange`
 marks the samples until `Overload_Corrected` as clipped, and every message,
@@ -214,7 +219,8 @@ calls into the API come from one thread. `DeviceRemoved` and
 ## Stopping
 
 `sdrplay_api_Uninit`, which ends the callbacks, then `ReleaseDevice` and
-`Close`, all within 1.5 seconds (spec 3.16 and 3.8). `StopPending` concerns
+`Close`, all within 3.5 seconds (spec 3.16 and 3.8), half a second short of
+FernSDR's SIGKILL. `StopPending` concerns
 an RSPduo master with a running slave, which this module never is.
 
 ## Not verified without an RSP

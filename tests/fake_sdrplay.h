@@ -49,6 +49,8 @@ struct Config {
     r::ErrT update_error = 0;
     // Update fails with update_error only when its reason has one of these.
     r::ReasonForUpdate update_error_on = 0;
+    // How many such updates fail before they succeed again; 0 for all.
+    int update_error_count = 0;
     // Milliseconds some calls take before they return.
     int lock_ms = 0;
     int init_ms = 0;
@@ -103,6 +105,7 @@ struct State {
     r::RxChannelParamsT init_channel{};
     std::vector<UpdateRecord> updates;
     int acks = 0;
+    int failed_updates = 0;
     double output_rate = 0;
 
     std::atomic<bool> loud{false};

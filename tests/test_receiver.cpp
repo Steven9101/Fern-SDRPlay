@@ -510,3 +510,73 @@ TEST(receiver_moves_along_the_ladder_and_retunes_with_the_new_band_table) {
     CHECK_EQ(rig.receiver.device_json().find("name")->as_string(), std::string("RSPdx"));
     CHECK_EQ(rig.receiver.device_json().find("api_version")->as_string(), std::string("3.15"));
 }
+
+namespace {
+
+// What the API does while its AGC runs: it moves the IF gain reduction and
+// says so in a GainChange event.
+void agc_moves_if_to(Rig& rig, fake::State& s, int if_reduction) {
+    {
+        std::lock_guard<std::mutex> lock(s.mutex);
+        s.a.tunerParams.gain.gRdB = if_reduction;
+    }
+    r::EventParamsT e{};
+    e.gainParams.gRdB = static_cast<unsigned>(if_reduction);
+    fern::Stream::on_event(r::event::gain_change, r::tuner::a, &e, rig.stream.get());
+}
+
+}  // namespace
+
+TEST(receiver_writes_the_gain_again_when_it_takes_the_gain_back_from_the_api_agc) {
+    fake::State& s = fake::fresh();
+    s.cfg.devices = {fake::device(r::hw::rsp1a, "AAA")};
+    Rig rig;
+    REQUIRE(!rig.open("{}"));
+    const auto last = [&] {
+        std::lock_guard<std::mutex> lock(s.mutex);
+        return s.updates.back();
+    };
+    const auto& table = rig.receiver.lna_table();
+
+    // auto, then agc, then auto: the ladder step nearest to where the AGC
+    // left the gain is written, even when it is the step stored before.
+    fern::LiveChange to_agc;
+    to_agc.gain = fern::GainMode::agc;
+    REQUIRE(!rig.receiver.apply(to_agc));
+    const unsigned lna = rig.receiver.effective().lna_state;
+    agc_moves_if_to(rig, s, 25);
+    fern::LiveChange to_auto;
+    to_auto.gain = fern::GainMode::automatic;
+    REQUIRE(!rig.receiver.apply(to_auto));
+    CHECK((last().reason & r::update::tuner_gr) != 0);
+    CHECK((last().reason & r::update::ctrl_agc) != 0);
+    const fern::GainStep& step = rig.receiver.ladder()[rig.receiver.ladder_step()];
+    CHECK_EQ(step.reduction, rig.receiver.ladder()[fern::ladder_nearest(rig.receiver.ladder(), table[lna] + 25)].reduction);
+    CHECK_EQ(last().lna_state, step.lna_state);
+    CHECK_EQ(last().if_reduction, step.if_reduction);
+    CHECK_EQ(rig.receiver.effective().if_reduction, s.a.tunerParams.gain.gRdB);
+
+    // agc, then manual without values: the gain stays where the AGC left it,
+    // written again, and reported as it is.
+    REQUIRE(!rig.receiver.apply(to_agc));
+    agc_moves_if_to(rig, s, 27);
+    fern::LiveChange to_manual;
+    to_manual.gain = fern::GainMode::manual;
+    REQUIRE(!rig.receiver.apply(to_manual));
+    CHECK((last().reason & r::update::tuner_gr) != 0);
+    CHECK_EQ(last().if_reduction, 27);
+    CHECK_EQ(rig.receiver.effective().if_reduction, 27);
+    CHECK_EQ(rig.receiver.settings_json(to_manual).find("if_gain_reduction")->as_number(), 27.0);
+
+    // agc, then manual with the AGC's own value as the LNA state: still written.
+    REQUIRE(!rig.receiver.apply(to_agc));
+    agc_moves_if_to(rig, s, 32);
+    const unsigned same_lna = rig.receiver.effective().lna_state;
+    fern::LiveChange by_hand;
+    by_hand.gain = fern::GainMode::manual;
+    by_hand.lna_state = same_lna;
+    REQUIRE(!rig.receiver.apply(by_hand));
+    CHECK((last().reason & r::update::tuner_gr) != 0);
+    CHECK_EQ(last().lna_state, same_lna);
+    CHECK_EQ(last().if_reduction, 32);
+}

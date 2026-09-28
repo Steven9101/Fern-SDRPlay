@@ -126,6 +126,8 @@ private:
     bool initialised_ = false;
     rsp::DeviceT device_{};
     rsp::DeviceParamsT* params_ = nullptr;
+    // The stream the API calls into, for what its events report.
+    Stream* stream_ = nullptr;
     rsp::CallbackFnsT callbacks_{};
     Identity identity_;
     Effective effective_;

@@ -558,3 +558,65 @@ TEST(session_exits_on_eof_on_a_closed_sample_pipe_and_on_a_signal) {
         CHECK_HAS(calls(s), "Uninit ReleaseDevice Close");
     }
 }
+
+TEST(session_auto_gain_retries_a_refused_step_and_says_when_it_gives_up) {
+    {
+        // The API refuses two gain changes, then takes them again: the
+        // control keeps trying and gets the gain down.
+        fake::State& s = fake::fresh();
+        s.cfg.devices = {fake::device(r::hw::rsp1a, "A")};
+        s.cfg.update_error = r::err::gain_update_error;
+        s.cfg.update_error_on = r::update::tuner_gr;
+        s.cfg.update_error_count = 2;
+        s.loud.store(true);
+        fern::SessionOptions o = quick_options();
+        o.gain_timing.settle = std::chrono::milliseconds(100);
+        Harness h(o);
+        check_hello(h);
+        h.send(open_line);
+        const Value ready = h.expect("ready", 5000);
+        const double start = -number_of(*ready.find("settings"), "gain_reduction");
+        h.start_draining();
+        h.stats_where([&](const Value& v) { return number_of(v, "gain") < start; }, 6000);
+        CHECK_EQ(s.failed_updates, 2);
+        h.send("{\"type\":\"stop\"}");
+        CHECK_EQ(h.exit_status(), 0);
+    }
+    {
+        // It refuses every one: after a few tries the module says, in an
+        // error FernSDR logs, that auto gain has stopped, and streams on.
+        fake::State& s = fake::fresh();
+        s.cfg.devices = {fake::device(r::hw::rsp1a, "A")};
+        s.cfg.update_error = r::err::gain_update_error;
+        s.cfg.update_error_on = r::update::tuner_gr;
+        s.loud.store(true);
+        fern::SessionOptions o = quick_options();
+        o.gain_timing.settle = std::chrono::milliseconds(100);
+        Harness h(o);
+        check_hello(h);
+        h.send(open_line);
+        h.expect("ready", 5000);
+        h.start_draining();
+        const Value e = h.expect("error", 8000);
+        CHECK(!e.find("fatal")->as_bool());
+        CHECK(e.find("id") == nullptr);
+        CHECK_HAS(text_of(e, "message"), "gain = auto has stopped");
+        CHECK_EQ(s.failed_updates, 5);
+        // No more tries, and no gain in the stats, which only a module that
+        // sets the gain reports.
+        const Value later = h.expect("stats");
+        CHECK(later.find("gain") == nullptr);
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        CHECK_EQ(s.failed_updates, 5);
+        h.send("{\"type\":\"stop\"}");
+        CHECK_EQ(h.exit_status(), 0);
+    }
+}
+
+TEST(session_gives_the_api_most_of_the_time_before_fernsdr_kills_the_module) {
+    // FernSDR sends SIGKILL 4 s after stop; the SIGTERM at 2 s only reaches
+    // the signalfd. Closing the API may take nearly all of that.
+    const fern::SessionOptions defaults;
+    CHECK(defaults.shutdown_timeout >= std::chrono::milliseconds(3000));
+    CHECK(defaults.shutdown_timeout <= std::chrono::milliseconds(3600));
+}

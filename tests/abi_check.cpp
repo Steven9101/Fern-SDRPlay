@@ -8,7 +8,9 @@
 // version that moves a field is caught before a module built for the old
 // one reads the wrong bytes.
 #include <cstddef>
+#include <tuple>
 #include <type_traits>
+#include <utility>
 
 #include <sdrplay_api.h>
 
@@ -267,6 +269,92 @@ SAME_FIELD(CallbackFnsT, sdrplay_api_CallbackFnsT, StreamACbFn);
 SAME_FIELD(CallbackFnsT, sdrplay_api_CallbackFnsT, StreamBCbFn);
 SAME_FIELD(CallbackFnsT, sdrplay_api_CallbackFnsT, EventCbFn);
 
-// The function signatures cannot be compared as types, since the official
-// ones use the enums where src/rsp_api.h uses integers of the same size;
-// the sizes of those enums are checked above.
+// The functions. Their types cannot be compared as a whole, since the
+// official ones use the enums where src/rsp_api.h uses integers of the same
+// size, so they are compared part by part: the number of parameters, and
+// for the result and each parameter its size and kind (pointer, floating
+// point, integer or enum), through pointers down to the size of what they
+// point at.
+namespace shape {
+
+template <typename T>
+constexpr int kind() {
+    return std::is_pointer<T>::value ? 1
+           : std::is_floating_point<T>::value ? 2
+           : (std::is_integral<T>::value || std::is_enum<T>::value) ? 3
+                                                                      : 4;
+}
+
+template <typename T, typename U>
+constexpr bool same() {
+    if constexpr (std::is_void<T>::value || std::is_void<U>::value) {
+        return std::is_void<T>::value && std::is_void<U>::value;
+    } else if constexpr (std::is_pointer<T>::value && std::is_pointer<U>::value) {
+        using PT = typename std::remove_pointer<T>::type;
+        using PU = typename std::remove_pointer<U>::type;
+        using T0 = typename std::remove_cv<PT>::type;
+        using U0 = typename std::remove_cv<PU>::type;
+        if (std::is_const<PT>::value != std::is_const<PU>::value)
+            return false;
+        if constexpr (std::is_void<T0>::value || std::is_void<U0>::value)
+            return std::is_void<T0>::value && std::is_void<U0>::value;
+        else if constexpr (std::is_pointer<T0>::value || std::is_pointer<U0>::value)
+            return same<T0, U0>();
+        else
+            return sizeof(T0) == sizeof(U0) && kind<T0>() == kind<U0>();
+    } else {
+        return sizeof(T) == sizeof(U) && kind<T>() == kind<U>();
+    }
+}
+
+template <typename F>
+struct Fn;
+template <typename R, typename... A>
+struct Fn<R (*)(A...)> {
+    using result = R;
+    using params = std::tuple<A...>;
+    static constexpr std::size_t count = sizeof...(A);
+};
+
+template <typename F, typename G, std::size_t... I>
+constexpr bool same_params(std::index_sequence<I...>) {
+    return (same<typename std::tuple_element<I, typename Fn<F>::params>::type,
+                 typename std::tuple_element<I, typename Fn<G>::params>::type>() &&
+            ...);
+}
+
+template <typename F, typename G>
+constexpr bool same_prototype() {
+    if constexpr (Fn<F>::count != Fn<G>::count)
+        return false;
+    else
+        return same<typename Fn<F>::result, typename Fn<G>::result>() &&
+               same_params<F, G>(std::make_index_sequence<Fn<F>::count>{});
+}
+
+}  // namespace shape
+
+// Against both the official function pointer types and the functions the
+// official header declares.
+#define SAME_FUNCTION(ours, name)                                                                       \
+    static_assert(shape::same_prototype<r::ours, name##_t>(), #name " differs from " #name "_t");       \
+    static_assert(shape::same_prototype<r::ours, decltype(&name)>(), #name " differs from its declaration")
+
+SAME_FUNCTION(OpenFn, sdrplay_api_Open);
+SAME_FUNCTION(CloseFn, sdrplay_api_Close);
+SAME_FUNCTION(ApiVersionFn, sdrplay_api_ApiVersion);
+SAME_FUNCTION(LockDeviceApiFn, sdrplay_api_LockDeviceApi);
+SAME_FUNCTION(UnlockDeviceApiFn, sdrplay_api_UnlockDeviceApi);
+SAME_FUNCTION(GetDevicesFn, sdrplay_api_GetDevices);
+SAME_FUNCTION(SelectDeviceFn, sdrplay_api_SelectDevice);
+SAME_FUNCTION(ReleaseDeviceFn, sdrplay_api_ReleaseDevice);
+SAME_FUNCTION(GetErrorStringFn, sdrplay_api_GetErrorString);
+SAME_FUNCTION(GetLastErrorFn, sdrplay_api_GetLastError);
+SAME_FUNCTION(GetDeviceParamsFn, sdrplay_api_GetDeviceParams);
+SAME_FUNCTION(InitFn, sdrplay_api_Init);
+SAME_FUNCTION(UninitFn, sdrplay_api_Uninit);
+SAME_FUNCTION(UpdateFn, sdrplay_api_Update);
+static_assert(shape::same_prototype<r::StreamCallback, sdrplay_api_StreamCallback_t>(),
+              "the stream callback differs from sdrplay_api_StreamCallback_t");
+static_assert(shape::same_prototype<r::EventCallback, sdrplay_api_EventCallback_t>(),
+              "the event callback differs from sdrplay_api_EventCallback_t");

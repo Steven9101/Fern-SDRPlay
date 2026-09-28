@@ -215,6 +215,8 @@ TEST(stream_counts_gaps_in_the_sample_numbers_as_dropped) {
     f.number = 7;
     f.feed(500, 500, true);
     f.feed(500, 500);
+    f.feed(500, 500);
+    f.feed(500, 500);
     CHECK_EQ(f.stream.samples_skipped(), uint64_t(300));
     CHECK_EQ(f.stream.resets(), uint64_t(1));
     // Numbers that go backwards are a discontinuity, not a drop.
@@ -325,4 +327,71 @@ TEST(stream_drops_and_counts_what_the_ring_cannot_hold) {
     }
     ::close(fds[0]);
     ::close(fds[1]);
+}
+
+TEST(stream_learns_a_step_of_three_from_low_if_and_its_multiples) {
+    // Low IF: the converter runs at 6 MHz and the API delivers 2 MHz, so
+    // the numbers may count three per delivered sample.
+    Feeder f(1);
+    REQUIRE(f.stream.start());
+    for (int i = 0; i < 3; ++i)
+        f.feed(400, 1200);
+    f.feed(400, 1200 + 300);  // 100 delivered samples missing
+    f.feed(400, 1200);
+    CHECK_EQ(f.stream.samples_skipped(), uint64_t(100));
+    CHECK_EQ(f.stream.discontinuities(), uint64_t(0));
+
+    Feeder g(4);  // low IF with decimation 4: twelve per delivered sample
+    REQUIRE(g.stream.start());
+    for (int i = 0; i < 3; ++i)
+        g.feed(250, 3000);
+    g.feed(250, 3000 + 120);
+    g.feed(250, 3000);
+    CHECK_EQ(g.stream.samples_skipped(), uint64_t(10));
+}
+
+TEST(stream_counts_a_gap_between_the_first_two_callbacks_once_the_step_is_known) {
+    Feeder f(1);
+    REQUIRE(f.stream.start());
+    f.feed(500, 500 + 2000);  // the first pair is 2500 apart: not a step
+    f.feed(500, 500);
+    f.feed(500, 500);
+    f.feed(500, 500);
+    CHECK_EQ(f.stream.samples_skipped(), uint64_t(2000));
+
+    // A gap of a whole multiple in the first pair looks like a step of 3,
+    // but the pairs after it disagree.
+    Feeder g(1);
+    REQUIRE(g.stream.start());
+    g.feed(500, 1500);
+    g.feed(500, 500);
+    g.feed(500, 500);
+    g.feed(500, 500);
+    CHECK_EQ(g.stream.samples_skipped(), uint64_t(1000));
+
+    // Numbers counted before a decimation of 4, with a gap in the first pair.
+    Feeder h(4);
+    REQUIRE(h.stream.start());
+    h.feed(500, 2000 + 800);
+    h.feed(500, 2000);
+    h.feed(500, 2000);
+    h.feed(500, 2000);
+    CHECK_EQ(h.stream.samples_skipped(), uint64_t(200));
+    CHECK_EQ(h.stream.discontinuities(), uint64_t(0));
+}
+
+TEST(stream_learns_the_step_again_after_a_reset) {
+    Feeder f(4);
+    REQUIRE(f.stream.start());
+    for (int i = 0; i < 3; ++i)
+        f.feed(500, 500);
+    // After the reset the API counts before decimation.
+    f.number = 0;
+    f.feed(500, 2000, true);
+    f.feed(500, 2000);
+    f.feed(500, 2000);
+    f.feed(500, 2000 + 400);
+    f.feed(500, 2000);
+    CHECK_EQ(f.stream.samples_skipped(), uint64_t(100));
+    CHECK_EQ(f.stream.discontinuities(), uint64_t(0));
 }

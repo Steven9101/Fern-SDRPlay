@@ -32,8 +32,11 @@ struct SessionOptions {
     // FernSDR wants ready within 15 s of open; the API gets 12 of them.
     std::chrono::milliseconds open_timeout{12000};
     // Stopping the writer and Uninit, ReleaseDevice and Close share this.
-    // FernSDR sends SIGTERM after 2 s.
-    std::chrono::milliseconds shutdown_timeout{1500};
+    // FernSDR sends SIGTERM 2 s after stop, which only reaches the module's
+    // signalfd and so does not cut this short, and SIGKILL after 4 s. A
+    // module killed inside the API may leave the service with the RSP
+    // selected, so the API gets all but half a second of that.
+    std::chrono::milliseconds shutdown_timeout{3500};
     // The delivered rate is measured over this window, from half a second
     // after the first samples, and must lie within 10 % of the announced
     // one: a factor the module has wrong about the API shows up here.

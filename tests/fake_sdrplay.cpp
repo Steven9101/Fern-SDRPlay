@@ -187,6 +187,7 @@ __attribute__((visibility("default"))) void fake_sdrplay_reset() {
     s.selected_mode = 0;
     s.updates.clear();
     s.acks = 0;
+    s.failed_updates = 0;
     s.output_rate = 0;
     s.loud.store(false);
     s.callbacks.store(0);
@@ -366,8 +367,11 @@ __attribute__((visibility("default"))) r::ErrT sdrplay_api_Update(r::Handle, r::
     std::lock_guard<std::mutex> lock(s.mutex);
     if (reason & r::update::ctrl_overload_msg_ack)
         ++s.acks;
-    if (s.cfg.update_error && (reason & s.cfg.update_error_on))
+    if (s.cfg.update_error && (reason & s.cfg.update_error_on) &&
+        (s.cfg.update_error_count == 0 || s.failed_updates < s.cfg.update_error_count)) {
+        ++s.failed_updates;
         return s.cfg.update_error;
+    }
     const r::RxChannelParamsT& ch = channel(s);
     s.updates.push_back(UpdateRecord{reason, ext1, ch.tunerParams.gain.LNAstate, ch.tunerParams.gain.gRdB,
                                      ch.ctrlParams.agc.enable});
