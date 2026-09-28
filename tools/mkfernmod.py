@@ -33,11 +33,11 @@ def main():
     parser.add_argument("--version", required=True, help="must equal the version --describe reports")
     parser.add_argument("--license", default="GPL-2.0-or-later WITH AdditionRef-Fern-SDRPlay-API-exception")
     parser.add_argument("--source", default="https://github.com/Steven9101/Fern-SDRPlay")
-    # The manifest has no field for what a module needs besides itself, so the
-    # description says it: FernSDR shows it where the package is installed.
     parser.add_argument("--description", default=(
-        "SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo (one tuner), RSPdx and RSPdx-R2. Needs SDRplay's API 3.15 "
-        "for Linux, installed from https://www.sdrplay.com/api/ with its sdrplay service running"))
+        "SDRplay RSP1, RSP1A, RSP1B, RSP2, RSPduo (one tuner), RSPdx and RSPdx-R2"))
+    # What the operator installs first, which FernSDR shows on its Modules
+    # page; receivers from before the field ignore it.
+    parser.add_argument("--requires", action="append", default=None, help="a line saying what to install first")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -78,6 +78,8 @@ def main():
         "license": args.license,
         "source": args.source,
         "description": args.description,
+        "requires": args.requires or [
+            "SDRplay API 3.14 or 3.15 for Linux from https://www.sdrplay.com/api/, with its sdrplay service running"],
         "settings": describe["settings"],
     }
     try:

@@ -133,6 +133,13 @@ def check_manifest(manifest):
     if not isinstance(sha256, str) or not SHA256_PATTERN.match(sha256):
         raise Invalid("sha256 %r is not valid" % sha256)
     check_settings(manifest.get("settings"))
+    # Optional, as FernSDR reads it: up to 4 lines of up to 200 characters.
+    if "requires" in manifest:
+        needs = manifest["requires"]
+        if not isinstance(needs, list) or len(needs) > 4 or not all(
+                isinstance(n, str) and 0 < len(n) <= 200 and all(ord(c) >= 0x20 and ord(c) != 0x7f for c in n)
+                for n in needs):
+            raise Invalid("requires is not a list of up to 4 lines of up to 200 characters")
 
 
 def check(path, extract=None):
