@@ -49,7 +49,8 @@ assert manifest["sha256"] == hashlib.sha256(exe).hexdigest()
 assert list(manifest)[:12] == ["schema", "id", "name", "version", "kind", "api", "platform", "size",
                                "sha256", "license", "source", "description"], list(manifest)
 assert manifest["license"] == "GPL-2.0-or-later WITH AdditionRef-Fern-SDRPlay-API-exception"
-assert "https://www.sdrplay.com/api/" in manifest["description"], manifest["description"]
+# SDRplay's API is named where FernSDR's Modules page shows what to install first.
+assert any("https://www.sdrplay.com/api/" in line for line in manifest["requires"]), manifest.get("requires")
 describe = json.loads(subprocess.run([executable, "--describe"], stdout=subprocess.PIPE, check=True).stdout)
 assert manifest["settings"] == describe["settings"]
 assert manifest == json.load(open(manifest_path))
