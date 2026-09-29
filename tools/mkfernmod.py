@@ -82,6 +82,8 @@ def main():
             "SDRplay API 3.14 or 3.15 for Linux from https://www.sdrplay.com/api/, with its sdrplay service running"],
         "settings": describe["settings"],
     }
+    if "tuning" in describe:
+        manifest["tuning"] = describe["tuning"]
     try:
         check_manifest(manifest)
     except Invalid as e:

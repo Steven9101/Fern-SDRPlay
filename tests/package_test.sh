@@ -53,6 +53,7 @@ assert manifest["license"] == "GPL-2.0-or-later WITH AdditionRef-Fern-SDRPlay-AP
 assert any("https://www.sdrplay.com/api/" in line for line in manifest["requires"]), manifest.get("requires")
 describe = json.loads(subprocess.run([executable, "--describe"], stdout=subprocess.PIPE, check=True).stdout)
 assert manifest["settings"] == describe["settings"]
+assert manifest["tuning"] == describe["tuning"], "the package lost the tuning --describe declares"
 assert manifest == json.load(open(manifest_path))
 EOF
 then

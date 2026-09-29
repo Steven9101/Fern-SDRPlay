@@ -537,6 +537,14 @@ json::Value describe_module() {
     d.set("version", module_version());
     d.set("kind", "input");
     d.set("settings", settings_schema());
+    // What the radio can be set to, for FernSDR's suggestions of bands.
+    // Every RSP tunes 1 kHz to 2 GHz. 2 Msps is light enough for a small
+    // computer; 10 Msps is about the widest an RSP delivers.
+    json::Value tuning = json::Value::object();
+    tuning.set("ranges", json::Value::array().push(json::Value::array().push(1000.0).push(2000000000.0)));
+    tuning.set("rates", json::Value::array().push(2000000.0).push(6000000.0).push(10000000.0));
+    tuning.set("signal", "iq");
+    d.set("tuning", tuning);
     return d;
 }
 
