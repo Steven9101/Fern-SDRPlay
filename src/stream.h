@@ -116,7 +116,10 @@ private:
     void handle_samples(const short* xi, const short* xq, const rsp::StreamCbParamsT* params, unsigned count,
                         bool reset);
     void track_numbers(uint32_t first, unsigned count, bool reset);
-    void account_step(uint32_t step, unsigned count);
+    // The step per delivered sample one pair suggests, or 0 for none.
+    unsigned step_ratio(uint32_t step, unsigned count) const;
+    // counted_with is the step the pair was counted under, 0 when not yet.
+    void remember_pair(uint32_t step, unsigned count, unsigned counted_with);
     void writer_main();
     void notify(int fd);
 
@@ -142,10 +145,13 @@ private:
     unsigned stride_ = 0;     // numbers per delivered sample; 0 until learnt
     unsigned candidate_ = 0;  // the step the last pairs of callbacks suggest
     unsigned agreed_ = 0;     // how many pairs in a row suggested it
-    // The pairs seen while learning, accounted for once the step is known.
+    // The last pairs: those seen while learning, accounted for once the
+    // step is known, and those counted since, counted again if the step
+    // proves wrong.
     static constexpr size_t max_pending = 8;
     uint32_t pending_step_[max_pending] = {};
     unsigned pending_count_[max_pending] = {};
+    unsigned pending_stride_[max_pending] = {};
     size_t pending_ = 0;
 
     std::atomic<uint64_t> received_{0};

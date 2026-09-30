@@ -380,6 +380,26 @@ TEST(stream_counts_a_gap_between_the_first_two_callbacks_once_the_step_is_known)
     CHECK_EQ(h.stream.discontinuities(), uint64_t(0));
 }
 
+TEST(stream_learns_the_smaller_step_again_when_early_losses_suggested_a_larger_one) {
+    // Numbers 0, 1500, 3000, 3500, 4000 for callbacks of 500: the first two
+    // pairs agree on a step of three, but the pairs after it step by one,
+    // which a step of three cannot do. The first two pairs were losses.
+    Feeder f(1);
+    REQUIRE(f.stream.start());
+    f.feed(500, 1500);
+    f.feed(500, 1500);
+    f.feed(500, 500);
+    f.feed(500, 500);
+    f.feed(500, 500);
+    f.feed(500, 500);
+    CHECK_EQ(f.stream.samples_skipped(), uint64_t(2000));
+    CHECK_EQ(f.stream.discontinuities(), uint64_t(0));
+    f.feed(500, 500 + 100);
+    f.feed(500, 500);
+    CHECK_EQ(f.stream.samples_skipped(), uint64_t(2100));
+    CHECK_EQ(f.stream.discontinuities(), uint64_t(0));
+}
+
 TEST(stream_learns_the_step_again_after_a_reset) {
     Feeder f(4);
     REQUIRE(f.stream.start());
