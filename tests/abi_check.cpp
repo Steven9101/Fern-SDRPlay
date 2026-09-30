@@ -39,7 +39,12 @@ SAME_VALUE(r::hw::rsp2, SDRPLAY_RSP2_ID);
 SAME_VALUE(r::hw::rspduo, SDRPLAY_RSPduo_ID);
 SAME_VALUE(r::hw::rspdx, SDRPLAY_RSPdx_ID);
 SAME_VALUE(r::hw::rsp1b, SDRPLAY_RSP1B_ID);
+// 3.15 added the RSPdx-R2's id; 3.14's headers lack it.
+#ifdef SDRPLAY_RSPdxR2_ID
 SAME_VALUE(r::hw::rspdx_r2, SDRPLAY_RSPdxR2_ID);
+#else
+static_assert(SDRPLAY_API_VERSION < 3.141f, "headers of 3.15 or later without SDRPLAY_RSPdxR2_ID");
+#endif
 
 // The enums, as integers: the module passes them as 32-bit values.
 static_assert(sizeof(sdrplay_api_ErrT) == sizeof(r::ErrT), "ErrT");

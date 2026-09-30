@@ -83,10 +83,20 @@ $(ASAN_DIR)/libfake_sdrplay_api.so: tests/fake_sdrplay.cpp tests/fake_sdrplay.h 
 	@mkdir -p $(@D)
 	$(CXX) $(FAKE_FLAGS) $(SANITIZE) -o $@ $<
 
+# The check also runs against the installed headers made into 3.14's, which
+# differ from 3.15's only in the version and in lacking the RSPdx-R2 id, so
+# that it keeps accepting both versions whichever is installed. The copy
+# stays in build/ and is never packaged.
+ABI_314 := build/abi-3.14
 abi-check:
 	@if [ -f $(SDRPLAY_INCLUDE)/sdrplay_api.h ]; then \
 		$(CXX) -std=c++17 -Wall -Wextra -Isrc -I$(SDRPLAY_INCLUDE) -fsyntax-only tests/abi_check.cpp && \
-		echo "abi-check: src/rsp_api.h matches $(SDRPLAY_INCLUDE)/sdrplay_api.h"; \
+		echo "abi-check: src/rsp_api.h matches $(SDRPLAY_INCLUDE)/sdrplay_api.h" && \
+		rm -rf $(ABI_314) && mkdir -p $(ABI_314) && cp $(SDRPLAY_INCLUDE)/sdrplay_api*.h $(ABI_314)/ && \
+		sed -i -e 's/^\(#define SDRPLAY_API_VERSION[^(]*\).*/\1(float)(3.14)/' -e '/^#define SDRPLAY_RSPdxR2_ID/d' \
+			$(ABI_314)/sdrplay_api.h && \
+		$(CXX) -std=c++17 -Wall -Wextra -Isrc -I$(ABI_314) -fsyntax-only tests/abi_check.cpp && \
+		echo "abi-check: and the same headers as 3.14's"; \
 	else \
 		echo "abi-check: skipped, SDRplay's headers are not installed in $(SDRPLAY_INCLUDE)"; \
 	fi
