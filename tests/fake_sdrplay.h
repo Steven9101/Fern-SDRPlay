@@ -47,6 +47,8 @@ struct Config {
     r::ErrT params_error = 0;
     r::ErrT init_error = 0;
     r::ErrT update_error = 0;
+    // Uninit returns this and leaves the stream running, as the API might.
+    r::ErrT uninit_error = 0;
     // Update fails with update_error only when its reason has one of these.
     r::ReasonForUpdate update_error_on = 0;
     // How many such updates fail before they succeed again; 0 for all.

@@ -424,6 +424,31 @@ TEST(session_reports_a_removed_rsp_as_lost) {
     CHECK_HAS(calls(s), "Uninit ReleaseDevice Close");
 }
 
+TEST(session_keeps_the_stream_when_uninit_fails) {
+    // A failed Uninit does not say that the API's stream callbacks have
+    // ended, so the stream they call into must outlive the session.
+    fake::State& s = fake::fresh();
+    s.cfg.devices = {fake::device(r::hw::rsp1a, "A")};
+    s.cfg.uninit_error = r::err::fail;
+    {
+        Harness h;
+        check_hello(h);
+        h.send(open_line);
+        h.expect("ready", 5000);
+        h.start_draining();
+        h.send("{\"type\":\"stop\"}");
+        CHECK_EQ(h.exit_status(5000, false), 0);
+        CHECK_HAS(calls(s), "Uninit ReleaseDevice Close");
+        // The callbacks go on for a while after the session has ended.
+        const uint64_t before = s.callbacks.load();
+        const auto until = Clock::now() + std::chrono::seconds(2);
+        while (s.callbacks.load() < before + 20 && Clock::now() < until)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        CHECK(s.callbacks.load() >= before + 20);
+    }
+    fake::fresh();
+}
+
 TEST(session_reports_a_stall) {
     fake::State& s = fake::fresh();
     s.cfg.devices = {fake::device(r::hw::rsp1a, "A")};

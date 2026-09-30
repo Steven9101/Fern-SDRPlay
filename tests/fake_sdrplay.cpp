@@ -353,6 +353,8 @@ __attribute__((visibility("default"))) r::ErrT sdrplay_api_Uninit(r::Handle) {
     call("Uninit");
     State& s = state();
     sleep_ms(s.cfg.uninit_ms);
+    if (s.cfg.uninit_error)
+        return s.cfg.uninit_error;
     stop_streamer(s);
     std::lock_guard<std::mutex> lock(s.mutex);
     s.initialised = false;

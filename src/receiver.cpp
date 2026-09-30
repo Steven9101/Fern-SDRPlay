@@ -710,26 +710,36 @@ json::Value Receiver::settings_json(const LiveChange& change) const {
 
 void Receiver::release_and_close(Clock::time_point deadline) {
     if (!close_by(deadline))
-        log_line("closing the SDRplay API did not finish in time");
+        log_line("closing the SDRplay API did not finish in time, or its stream may still run");
 }
 
 bool Receiver::close_by(Clock::time_point deadline) {
     bool ok = true;
+    // True when the call returned success in time.
     const auto run = [&](const char* name, auto&& call) {
         if (Clock::now() >= deadline) {
             log_line("no time left for %s", name);
             ok = false;
-            return;
+            return false;
         }
         Watchdog::Scope s(watchdog_, name, deadline);
         const rsp::ErrT err = call();
-        if (s.expired())
+        if (s.expired()) {
             ok = false;
-        else if (err != rsp::err::success)
+            return false;
+        }
+        if (err != rsp::err::success) {
             log_line("%s failed: %s", name, api_.error_text(err).c_str());
+            return false;
+        }
+        return true;
     };
     if (initialised_) {
-        run("sdrplay_api_Uninit", [&] { return api_.Uninit(device_.dev); });
+        // Only an Uninit that succeeded says the stream callbacks have
+        // ended; until then the stream must not be freed, however the
+        // calls after it go, and in every later close too.
+        if (!run("sdrplay_api_Uninit", [&] { return api_.Uninit(device_.dev); }))
+            callbacks_may_run_ = true;
         initialised_ = false;
     }
     if (selected_) {
@@ -741,7 +751,7 @@ bool Receiver::close_by(Clock::time_point deadline) {
         api_open_ = false;
     }
     params_ = nullptr;
-    return ok;
+    return ok && !callbacks_may_run_;
 }
 
 }  // namespace fern

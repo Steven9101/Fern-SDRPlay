@@ -643,7 +643,7 @@ SessionResult Session::shut_down() {
     // Uninit ends the API's calls into the stream; ReleaseDevice and Close
     // leave the service as the specification wants it, for the next band.
     if (!receiver_.close_by(std::max(deadline, Clock::now() + std::chrono::milliseconds(250)))) {
-        log_line("closing the SDRplay API did not finish in time; exiting without waiting for it");
+        log_line("closing the SDRplay API did not finish in time or failed; exiting without waiting for it");
         result.clean = false;
     }
     if (!writer_stopped || !result.clean) {

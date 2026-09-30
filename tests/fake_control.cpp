@@ -41,8 +41,16 @@ Library& library() {
 }  // namespace
 
 State& fresh() {
+    // A stream the API was left calling into, after an Uninit that did not
+    // succeed, is the API's for good: held here, never freed, so that the
+    // leak checker sees it held as the real API would hold it.
+    static void** kept = new void*[64]();
+    static size_t kept_count = 0;
+    State* s = library().state();
+    if (s->initialised && s->ctx && kept_count < 64)
+        kept[kept_count++] = s->ctx;
     library().reset();
-    return *library().state();
+    return *s;
 }
 
 fern::Api& api() {

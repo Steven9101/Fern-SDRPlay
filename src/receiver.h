@@ -99,7 +99,9 @@ public:
     json::Value settings_json(const LiveChange& change) const;
 
     // Uninit, ReleaseDevice, Close, each as far as the deadline allows. False
-    // when a call did not return in time.
+    // when a call did not return in time, or when an Uninit, this one or an
+    // earlier one, did not succeed: the API may then still call into the
+    // stream.
     bool close_by(Clock::time_point deadline);
 
 private:
@@ -124,6 +126,7 @@ private:
     bool api_open_ = false;
     bool selected_ = false;
     bool initialised_ = false;
+    bool callbacks_may_run_ = false;
     rsp::DeviceT device_{};
     rsp::DeviceParamsT* params_ = nullptr;
     // The stream the API calls into, for what its events report.
